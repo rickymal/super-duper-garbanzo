@@ -100,7 +100,28 @@ def test_sumNumbers(context):
 def test_subtractNumbers(context):
     assert 2 - 1 == 0
 
+
+# Definindo alguns testes manuais
+description = serverTesting.describe("Operações Portuguesas")
+
+@description.it("deve somar dois números")
+def test_sumNumbers(context):
+    assert 1 + 1 == 2
+
+@description.it("deve subtrair dois números")
+def test_subtractNumbers(context):
+    assert 2 - 1 == 0
+
+import time
 if __name__ == "__main__":
+    tasks = [f"task {n}" for n in range(1, 11)]
+
+    with console.status("[bold green]Working on tasks...") as status:
+        while tasks:
+            task = tasks.pop(0)
+            time.sleep(1)
+            console.log(f"{task} complete")
+            
     serverTesting.run()
     # import uvicorn
     # uvicorn.run(app, host="127.0.0.1", port=8000)
