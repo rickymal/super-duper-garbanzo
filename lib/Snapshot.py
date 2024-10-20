@@ -695,6 +695,7 @@ if __name__ == '__main__':
     validatorEngine.register_rule('validateDataLogic', validateDataLogic)
 
 
+    # Seria interessante se o DefaultSchemaGenerator pudesse receber outros tipos, criar tipos.
     default_schema_generator = DefaultSchemaGenerator()
 
     # Atualizar o esquema no objeto de dados
