@@ -108,7 +108,7 @@ def run_user_journey():
 # @pytest.mark.description("Teste para verificar se a soma de dois números está correta")
 def test_main():
     """Teste para verificar se a soma de dois números está correta."""
-    snapshot = Snapshot("oloko")
+    snapshot = SnapshotManager("oloko")
     snapshot.get_or_create_snapshot("henrique")
 
     

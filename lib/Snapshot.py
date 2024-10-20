@@ -2,14 +2,18 @@ from abc import ABC, abstractmethod
 import os
 import hashlib
 import time
-import datetime
 import pickle
 import json
 import yaml
 import toml
 import hcl2
 import re
-from datetime import datetime
+import datetime
+import logging
+
+# Configurar o logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- Interfaces e Implementações de Serializers ---
 
@@ -119,7 +123,7 @@ class ValidatorInterface(ABC):
     def validate(self, ctx, engine):
         pass
 
-# --- Implementação do ObjectValidator ---
+# --- Implementação dos Validadores ---
 
 class ObjectValidator(ValidatorInterface):
     def validate(self, ctx, engine):
@@ -132,13 +136,12 @@ class ObjectValidator(ValidatorInterface):
             subdata = data.get(key)
             subpath = f"{ctx.path}.{key}"
             subctx = Context(subdata, subschema, subpath)
-            engine._validate(subctx)
-            ctx.errors.extend(subctx.errors)
+            is_valid, errors = engine.validate(subdata, subschema)
+            ctx.errors.extend(errors)
 
         # Validação de regras adicionais
         validations = schema.get('validations', {})
         for logic_op, rules in validations.items():
-            # Aplica cada regra usando o engine
             if logic_op in ['and', 'or']:
                 results = [engine._apply_validation_rule(ctx, rule) for rule in rules]
                 if logic_op == 'and' and not all(results):
@@ -146,88 +149,11 @@ class ObjectValidator(ValidatorInterface):
                 elif logic_op == 'or' and not any(results):
                     ctx.reprove(f"Falha nas validações 'or' em {ctx.path}")
             else:
-                # Caso não tenha 'and' ou 'or', aplica a regra diretamente
                 res = engine._apply_validation_rule(ctx, rules)
                 if not res:
                     ctx.reprove(f"Falha na validação em {ctx.path}")
 
-# --- ValidationRule e ValidationEngine ---
 
-class ValidationRule:
-    def __init__(self, name, function):
-        self.name = name
-        self.function = function
-
-    def apply(self, context):
-        return self.function(context)
-
-
-class ValidationEngine:
-    def __init__(self):
-        self.rules = {}
-        self.validator_factory = ValidatorFactory()
-
-    def register_rule(self, name, function):
-        """Registra uma função de validação personalizada."""
-        self.rules[name] = ValidationRule(name, function)
-
-    def validate(self, data, schema):
-        """Valida os dados com base no esquema."""
-        context = Context(data, schema, 'root')
-        self._validate(context)
-        is_valid = len(context.errors) == 0
-        return is_valid, context.errors
-
-    def _validate(self, ctx):
-        """Função recursiva para validar os dados."""
-        validator = self.validator_factory.get_validator(ctx.schema.get('type'))
-        validator.validate(ctx, self)
-
-    def _apply_validation_rule(self, ctx, rule):
-        """Aplica uma regra de validação."""
-        if 'pythonFunctionNameRegister' in rule:
-            func_name = rule['pythonFunctionNameRegister']
-            func = self.rules.get(func_name)
-            if not func:
-                ctx.reprove(f"Função de validação '{func_name}' não registrada")
-                return False
-            # Executa a função de validação
-            func.apply(ctx)
-            if ctx.errors:
-                return False
-            return True
-        elif 'and' in rule or 'or' in rule:
-            # Trata validações aninhadas
-            logic_op = 'and' if 'and' in rule else 'or'
-            rules = rule[logic_op]
-            results = [self._apply_validation_rule(ctx, subrule) for subrule in rules]
-            if logic_op == 'and':
-                return all(results)
-            else:
-                return any(results)
-        else:
-            ctx.reprove(f"Regra de validação inválida em {ctx.path}")
-            return False
-
-# --- ValidatorFactory ---
-
-class ValidatorFactory:
-    validators = {}
-
-    @classmethod
-    def register_validator(cls, type_name, validator_class):
-        cls.validators[type_name] = validator_class
-
-    @classmethod
-    def get_validator(cls, type_name):
-        validator_class = cls.validators.get(type_name)
-        if not validator_class:
-            raise ValueError(f"Tipo de validação '{type_name}' não suportado.")
-        return validator_class()
-
-# --- Implementação de Outros Validadores (Exemplo para 'array', 'string', etc.) ---
-
-# Exemplo de validador para 'array'
 class ArrayValidator(ValidatorInterface):
     def validate(self, ctx, engine):
         data = ctx.data
@@ -237,8 +163,8 @@ class ArrayValidator(ValidatorInterface):
         for index, item in enumerate(data):
             subpath = f"{ctx.path}[{index}]"
             subctx = Context(item, items_schema, subpath)
-            engine._validate(subctx)
-            ctx.errors.extend(subctx.errors)
+            is_valid, errors = engine.validate(item, items_schema)
+            ctx.errors.extend(errors)
 
         # Validação de regras adicionais, se houver
         validations = schema.get('validations', {})
@@ -288,6 +214,7 @@ class StringValidator(ValidatorInterface):
                 res = engine._apply_validation_rule(ctx, rules)
                 if not res:
                     ctx.reprove(f"Falha na validação em {ctx.path}")
+
 
 class IntegerValidator(ValidatorInterface):
     def validate(self, ctx, engine):
@@ -352,6 +279,7 @@ class NumberValidator(ValidatorInterface):
                 if not res:
                     ctx.reprove(f"Falha na validação em {ctx.path}")
 
+
 class BooleanValidator(ValidatorInterface):
     def validate(self, ctx, engine):
         data = ctx.data
@@ -394,17 +322,80 @@ class NullValidator(ValidatorInterface):
                 if not res:
                     ctx.reprove(f"Falha na validação em {ctx.path}")
 
+# --- ValidatorFactory ---
 
-# Registrando os validadores na ValidatorFactory
-ValidatorFactory.register_validator('object', ObjectValidator)
-ValidatorFactory.register_validator('array', ArrayValidator)
-ValidatorFactory.register_validator('string', StringValidator)
-ValidatorFactory.register_validator('integer', IntegerValidator)
-ValidatorFactory.register_validator('number', NumberValidator)
-ValidatorFactory.register_validator('boolean', BooleanValidator)
-ValidatorFactory.register_validator('null', NullValidator)
+class ValidatorFactory:
 
-# Registrar outros validadores como 'string', 'integer', etc., conforme necessário
+    def __init__(self):
+        self.validators = {}
+
+
+    def register_validator(self, type_name, validator_class):
+        self.validators[type_name] = validator_class
+
+    def get_validator(self, type_name):
+        validator_class = self.validators.get(type_name)
+        if not validator_class:
+            raise ValueError(f"Tipo de validação '{type_name}' não suportado.")
+        return validator_class()
+
+# --- ValidationRule e ValidationEngine ---
+
+class ValidationRule:
+    def __init__(self, name, function):
+        self.name = name
+        self.function = function
+
+    def apply(self, context):
+        return self.function(context)
+
+
+class ValidationEngine:
+    def __init__(self, validator_factory: ValidatorFactory):
+        self.rules = {}
+        self.validator_factory = validator_factory
+
+    def register_rule(self, name, function):
+        """Registra uma função de validação personalizada."""
+        self.rules[name] = ValidationRule(name, function)
+
+    def validate(self, data, schema):
+        """Valida os dados com base no esquema."""
+        context = Context(data, schema, 'root')
+        self._validate(context)
+        is_valid = len(context.errors) == 0
+        return is_valid, context.errors
+
+    def _validate(self, ctx):
+        """Função recursiva para validar os dados."""
+        validator = self.validator_factory.get_validator(ctx.schema.get('type'))
+        validator.validate(ctx, self)
+
+    def _apply_validation_rule(self, ctx, rule):
+        """Aplica uma regra de validação."""
+        if 'pythonFunctionNameRegister' in rule:
+            func_name = rule['pythonFunctionNameRegister']
+            func = self.rules.get(func_name)
+            if not func:
+                ctx.reprove(f"Função de validação '{func_name}' não registrada")
+                return False
+            # Executa a função de validação
+            func.apply(ctx)
+            if ctx.errors:
+                return False
+            return True
+        elif 'and' in rule or 'or' in rule:
+            # Trata validações aninhadas
+            logic_op = 'and' if 'and' in rule else 'or'
+            rules = rule[logic_op]
+            results = [self._apply_validation_rule(ctx, subrule) for subrule in rules]
+            if logic_op == 'and':
+                return all(results)
+            else:
+                return any(results)
+        else:
+            ctx.reprove(f"Regra de validação inválida em {ctx.path}")
+            return False
 
 # --- Funções de Validação Personalizadas ---
 
@@ -460,58 +451,13 @@ class SerializerFactory:
             raise ValueError(f"Formato '{format_name}' não suportado.")
         return serializer_class()
 
-# --- SnapshotManager ---
-
-class SnapshotManager:
-    def __init__(self, serializer_factory, validation_engine, schema_generator, snapshot_dir='mock'):
-        self.serializer_factory = serializer_factory
-        self.validation_engine = validation_engine
-        self.schema_generator = schema_generator
-        self.snapshot_dir = snapshot_dir
-
-        if not os.path.exists(self.snapshot_dir):
-            os.makedirs(self.snapshot_dir)
-
-    def create_snapshot(self, snapshot_name, data, version='latest', metadata=None, format='json'):
-        serializer = self.serializer_factory.get_serializer(format)
-        schema = self.schema_generator.generate(data)
-        snapshot_data = {
-            'schema': schema,
-            'snapshot': data,
-            'hash': self.calculate_hash(data),
-            'version': version,
-            'created_at': datetime.datetime.fromtimestamp(time.time()).isoformat(),
-            'last_access': datetime.datetime.fromtimestamp(time.time()).isoformat(),
-            'metadata': metadata or {}
-        }
-        file_path = os.path.join(self.snapshot_dir, f"{snapshot_name}_{version}.{format}")
-        serializer.save(snapshot_data, file_path)
-        print(f"Snapshot criado em {file_path} com metadados: {metadata}")
-
-    def load_snapshot(self, snapshot_name, version='latest', format='json'):
-        serializer = self.serializer_factory.get_serializer(format)
-        file_path = os.path.join(self.snapshot_dir, f"{snapshot_name}_{version}.{format}")
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Snapshot '{snapshot_name}' versão '{version}' não encontrado.")
-        snapshot_data = serializer.load(file_path)
-        return snapshot_data
-
-    def validate_snapshot(self, data, snapshot_name, version='latest', format='json'):
-        snapshot_data = self.load_snapshot(snapshot_name, version, format)
-        schema = snapshot_data['schema']
-        is_valid, errors = self.validation_engine.validate(data, schema)
-        return is_valid, errors
-
-    def calculate_hash(self, obj):
-        """Calcula o hash do objeto para garantir a integridade."""
-        return hashlib.sha256(pickle.dumps(obj)).hexdigest()
-
 # --- SchemaGeneratorInterface e DefaultSchemaGenerator ---
 
 class SchemaGeneratorInterface(ABC):
     @abstractmethod
     def generate(self, data):
         pass
+
 
 class DefaultSchemaGenerator(SchemaGeneratorInterface):
     def generate(self, obj):
@@ -544,14 +490,15 @@ class DefaultSchemaGenerator(SchemaGeneratorInterface):
 
 # --- Snapshot Class com Métodos de Asserção ---
 
-class Snapshot:
-    def __init__(self, snapshot_name, serializer=None, validation_mode='hard', snapshot_dir='mock'):
+class SnapshotManager:
+    def __init__(self, snapshot_name, serializer=None, validation_mode='hard', snapshot_dir='mock', schema_generator=None, validation_engine=None):
         self.snapshot_name = snapshot_name
         self.validation_mode = validation_mode
         self.snapshot_dir = snapshot_dir
+        self.schema_generator = schema_generator or DefaultSchemaGenerator()
+        self.validation_engine = validation_engine or ValidationEngine()
         if not os.path.exists(self.snapshot_dir):
             os.makedirs(self.snapshot_dir)
-        self.registered_validations = {}
         self.serializer = serializer  # Pode ser None
 
     def set_serializer(self, serializer):
@@ -575,62 +522,30 @@ class Snapshot:
 
     def addRegister(self, name, func):
         """Registra uma função de validação personalizada."""
-        self.registered_validations[name] = func
+        self.validation_engine.register_rule(name, func)
 
     def calculate_hash(self, obj):
         """Calcula o hash do objeto para garantir a integridade."""
         return hashlib.sha256(pickle.dumps(obj)).hexdigest()
 
-    def generate_schema(self, obj):
-        """Gera um esquema de tipos a partir do objeto fornecido."""
-        if isinstance(obj, dict):
-            schema = {'type': 'object', 'properties': {}, 'required': []}
-            for key, value in obj.items():
-                schema['properties'][key] = self.generate_schema(value)
-                schema['required'].append(key)  # Por padrão, todos os campos são obrigatórios
-            return schema
-        elif isinstance(obj, list):
-            if obj:
-                # Assume que todos os itens da lista são do mesmo tipo
-                schema = {'type': 'array', 'items': self.generate_schema(obj[0])}
-            else:
-                schema = {'type': 'array', 'items': {}}
-            return schema
-        elif isinstance(obj, str):
-            return {'type': 'string'}
-        elif isinstance(obj, int):
-            return {'type': 'integer'}
-        elif isinstance(obj, float):
-            return {'type': 'number'}
-        elif isinstance(obj, bool):
-            return {'type': 'boolean'}
-        elif obj is None:
-            return {'type': 'null'}
-        else:
-            raise TypeError(f'Unsupported type: {type(obj)}')
-
     def create_snapshot(self, obj, version='latest', metadata=None, format='pkl'):
         """Cria um novo snapshot."""
         serializer = self.serializer or self.select_serializer(format)
+        self.validation_engine.register_rule('custom_validation', validateDataLogic)  # Exemplo de registro
         current_time = time.time()
         versioned_file = os.path.join(self.snapshot_dir, f'{self.snapshot_name}_{version}.{format}')
-        schema = self.generate_schema(obj)
+        schema = self.schema_generator.generate(obj)
         snapshot_data = {
             'schema': schema,
             'snapshot': obj,
             'hash': self.calculate_hash(obj),
             'version': version,
-            'created_at': current_time,
-            'last_access': current_time,
+            'created_at': datetime.datetime.fromtimestamp(current_time).isoformat() if not isinstance(serializer, PickleSerializer) else current_time,
+            'last_access': datetime.datetime.fromtimestamp(current_time).isoformat() if not isinstance(serializer, PickleSerializer) else current_time,
             'metadata': metadata or {}
         }
-        # Converter timestamps para formatos legíveis se não for pickle
-        if not isinstance(serializer, PickleSerializer):
-            snapshot_data['created_at'] = datetime.datetime.fromtimestamp(current_time).isoformat()
-            snapshot_data['last_access'] = datetime.datetime.fromtimestamp(current_time).isoformat()
-        # Salva o snapshot
         serializer.save(snapshot_data, versioned_file)
-        print(f"Snapshot criado em {versioned_file} com metadados: {metadata}")
+        logger.info(f"Snapshot criado em {versioned_file} com metadados: {metadata}")
         return obj
 
     def get_or_create_snapshot(self, obj=None, version='latest', expiration_time=3600, format='pkl'):
@@ -645,9 +560,11 @@ class Snapshot:
             if not isinstance(serializer, PickleSerializer):
                 if isinstance(snapshot_data['created_at'], str):
                     snapshot_data['created_at'] = datetime.datetime.fromisoformat(snapshot_data['created_at']).timestamp()
+                if isinstance(snapshot_data['last_access'], str):
+                    snapshot_data['last_access'] = datetime.datetime.fromisoformat(snapshot_data['last_access']).timestamp()
             # Verifica expiração
             if current_time - snapshot_data['created_at'] > expiration_time:
-                print(f"Snapshot {version} expirou. Criando um novo.")
+                logger.info(f"Snapshot {version} expirou. Criando um novo.")
                 if obj is not None:
                     return self.create_snapshot(obj, version, format=format)
                 else:
@@ -662,15 +579,12 @@ class Snapshot:
                 if self.validation_mode == 'hard':
                     raise ValueError(f"Erro de validação ao carregar o snapshot:\n{error_messages}")
                 else:
-                    print(f"Advertência de validação ao carregar o snapshot:\n{error_messages}")
+                    logger.warning(f"Advertência de validação ao carregar o snapshot:\n{error_messages}")
             # Atualiza o tempo de último acesso
-            snapshot_data['last_access'] = current_time
-            # Converter timestamps se necessário
-            if not isinstance(serializer, PickleSerializer):
-                snapshot_data['last_access'] = datetime.datetime.fromtimestamp(current_time).isoformat()
+            snapshot_data['last_access'] = datetime.datetime.fromtimestamp(current_time).isoformat() if not isinstance(serializer, PickleSerializer) else current_time
             # Salva o snapshot atualizado
             serializer.save(snapshot_data, versioned_file)
-            print(f"Recuperando snapshot de {versioned_file}")
+            logger.info(f"Recuperando snapshot de {versioned_file}")
             return snapshot_data['snapshot']
         else:
             if obj is not None:
@@ -689,120 +603,15 @@ class Snapshot:
             if not isinstance(serializer, PickleSerializer):
                 if isinstance(snapshot_data['created_at'], str):
                     snapshot_data['created_at'] = datetime.datetime.fromisoformat(snapshot_data['created_at']).timestamp()
+                if isinstance(snapshot_data['last_access'], str):
+                    snapshot_data['last_access'] = datetime.datetime.fromisoformat(snapshot_data['last_access']).timestamp()
             return snapshot_data
         else:
             raise FileNotFoundError(f"Snapshot {version} não encontrado.")
 
     def validate_data(self, data, schema, path='root'):
         """Valida os dados com base no esquema e nas validações personalizadas."""
-        context = Context(data, schema, path)
-        self._validate(context)
-        is_valid = len(context.errors) == 0
-        return is_valid, context.errors
-
-    def _validate(self, ctx):
-        """Função recursiva para validar os dados."""
-        data = ctx.data
-        schema = ctx.schema
-
-        # Verifica o tipo
-        expected_type = schema.get('type')
-        if expected_type:
-            if expected_type == 'object' and not isinstance(data, dict):
-                ctx.reprove(f"Esperado um objeto, mas encontrado {type(data).__name__}")
-                return
-            elif expected_type == 'array' and not isinstance(data, list):
-                ctx.reprove(f"Esperado uma lista, mas encontrado {type(data).__name__}")
-                return
-            elif expected_type == 'string' and not isinstance(data, str):
-                ctx.reprove(f"Esperado uma string, mas encontrado {type(data).__name__}")
-                return
-            elif expected_type == 'integer' and not isinstance(data, int):
-                ctx.reprove(f"Esperado um inteiro, mas encontrado {type(data).__name__}")
-                return
-            elif expected_type == 'number' and not isinstance(data, (int, float)):
-                ctx.reprove(f"Esperado um número, mas encontrado {type(data).__name__}")
-                return
-            elif expected_type == 'boolean' and not isinstance(data, bool):
-                ctx.reprove(f"Esperado um booleano, mas encontrado {type(data).__name__}")
-                return
-            elif expected_type == 'null' and data is not None:
-                ctx.reprove(f"Esperado valor nulo, mas encontrado {type(data).__name__}")
-                return
-
-        # Validações adicionais
-        validations = schema.get('validations', {})
-        for logic_op, rules in validations.items():
-            if logic_op in ['and', 'or']:
-                results = [self._apply_validation_rule(ctx, rule) for rule in rules]
-                if logic_op == 'and' and not all(results):
-                    ctx.reprove(f"Falha nas validações 'and' em {ctx.path}")
-                elif logic_op == 'or' and not any(results):
-                    ctx.reprove(f"Falha nas validações 'or' em {ctx.path}")
-            else:
-                # Caso não tenha 'and' ou 'or', aplica a regra diretamente
-                res = self._apply_validation_rule(ctx, rules)
-                if not res:
-                    ctx.reprove(f"Falha na validação em {ctx.path}")
-
-        # Se for um objeto, valida propriedades
-        if expected_type == 'object':
-            required_fields = schema.get('required', [])
-            properties = schema.get('properties', {})
-            for key, subschema in properties.items():
-                subpath = f"{ctx.path}.{key}"
-                subctx = Context(data.get(key), subschema, subpath)
-                if key in data:
-                    self._validate(subctx)
-                    ctx.errors.extend(subctx.errors)
-                elif key in required_fields:
-                    ctx.reprove(f"Campo obrigatório '{key}' ausente em {ctx.path}")
-            # Valida campos adicionais não definidos no esquema
-            for key in data.keys():
-                if key not in properties:
-                    ctx.reprove(f"Campo '{key}' não esperado em {ctx.path}")
-
-        # Se for uma lista, valida itens
-        elif expected_type == 'array':
-            items_schema = schema.get('items', {})
-            for index, item in enumerate(data):
-                subpath = f"{ctx.path}[{index}]"
-                subctx = Context(item, items_schema, subpath)
-                self._validate(subctx)
-                ctx.errors.extend(subctx.errors)
-
-    def _apply_validation_rule(self, ctx, rule):
-        """Aplica uma regra de validação."""
-        if 'pythonFunctionNameRegister' in rule:
-            func_name = rule['pythonFunctionNameRegister']
-            func = self.registered_validations.get(func_name)
-            if not func:
-                ctx.reprove(f"Função de validação '{func_name}' não registrada")
-                return False
-            # Cria um novo contexto para a função de validação
-            validation_ctx = Context(ctx.data, ctx.schema, ctx.path)
-            # Adiciona argumentos adicionais ao contexto
-            for key, value in rule.items():
-                if key != 'pythonFunctionNameRegister':
-                    setattr(validation_ctx, key, value)
-            # Executa a função de validação
-            func(validation_ctx)
-            if validation_ctx.errors:
-                ctx.errors.extend(validation_ctx.errors)
-                return False
-            return True
-        elif 'and' in rule or 'or' in rule:
-            # Trata validações aninhadas
-            logic_op = 'and' if 'and' in rule else 'or'
-            rules = rule[logic_op]
-            results = [self._apply_validation_rule(ctx, subrule) for subrule in rules]
-            if logic_op == 'and':
-                return all(results)
-            else:
-                return any(results)
-        else:
-            ctx.reprove(f"Regra de validação inválida em {ctx.path}")
-            return False
+        return self.validation_engine.validate(data, schema)
 
     # Métodos de asserção adicionados
     def assert_deep_equal(self, data, version='latest', format='pkl'):
@@ -813,7 +622,7 @@ class Snapshot:
         if snapshot_content != data:
             raise AssertionError(f"Os dados fornecidos não são iguais ao snapshot '{version}'.")
         else:
-            print(f"Asserção bem-sucedida: os dados são iguais ao snapshot '{version}'.")
+            logger.info(f"Asserção bem-sucedida: os dados são iguais ao snapshot '{version}'.")
 
     def assert_schema_compliance(self, data, version='latest', format='pkl'):
         """Asserta que os dados fornecidos estão em conformidade com o esquema do snapshot."""
@@ -824,7 +633,7 @@ class Snapshot:
             error_messages = '\n'.join([f"{e['path']}: {e['message']}" for e in errors])
             raise AssertionError(f"Os dados não estão em conformidade com o esquema:\n{error_messages}")
         else:
-            print(f"Asserção bem-sucedida: os dados estão em conformidade com o esquema do snapshot '{version}'.")
+            logger.info(f"Asserção bem-sucedida: os dados estão em conformidade com o esquema do snapshot '{version}'.")
 
     def assert_custom_validation(self, data, version='latest', format='pkl'):
         """Asserta que os dados fornecidos passam nas validações personalizadas."""
@@ -835,30 +644,14 @@ class Snapshot:
             error_messages = '\n'.join([f"{e['path']}: {e['message']}" for e in errors])
             raise AssertionError(f"Os dados não passaram nas validações personalizadas:\n{error_messages}")
         else:
-            print(f"Asserção bem-sucedida: os dados passaram nas validações personalizadas do snapshot '{version}'.")
+            logger.info(f"Asserção bem-sucedida: os dados passaram nas validações personalizadas do snapshot '{version}'.")
 
 # --- Exemplo de Uso Completo ---
 
 if __name__ == '__main__':
-    # Cria instâncias dos serializers, se desejar reutilizá-los
-    json_serializer = JsonSerializer()
-    hcl_serializer = HclSerializer()
+    # Instancia a classe Root com seus componentes
 
-    # Cria o Snapshot especificando o formato desejado
-    snapshot_json = Snapshot('my_test_snapshot_json')
-    snapshot_json.set_serializer(json_serializer)
-    snapshot_hcl = Snapshot('my_test_snapshot_hcl')
-    snapshot_hcl.set_serializer(hcl_serializer)
-
-    # Registra funções de validação personalizadas
-    snapshot_json.addRegister("schema-only", schema_only)
-    snapshot_json.addRegister("regex", regexOption)
-    snapshot_json.addRegister("validateDataLogic", validateDataLogic)
-    snapshot_hcl.addRegister("schema-only", schema_only)
-    snapshot_hcl.addRegister("regex", regexOption)
-    snapshot_hcl.addRegister("validateDataLogic", validateDataLogic)
-
-    # Exemplo de objeto
+    # Exemplo de objeto com campos adicionais
     my_data = {
         "lightDataVerification": {
             "start": "2024-05-03",
@@ -871,18 +664,65 @@ if __name__ == '__main__':
         "hardDataVerification": {
             "start": "2024-05-03",
             "end": "2024-05-05"
-        }
+        },
+        "status": True,
+        "count": 10,
+        "price": 99.99,
+        "description": "Produto de teste",
+        "notes": None
     }
 
-    # Cria um snapshot em formato JSON
-    snapshot_json.create_snapshot(my_data, version='0.0.1', metadata={"author": "Henrique"}, format='json')
+    # Definindo serializadores
+    serializerFactory = SerializerFactory()
+    serializerFactory.register_serializer('json', JsonSerializer)
+    serializerFactory.register_serializer('yaml', YamlSerializer)
+    serializerFactory.register_serializer('toml', TomlSerializer)
+    serializerFactory.register_serializer('hcl', HclSerializer)
+    serializerFactory.register_serializer('pickle', PickleSerializer)
 
-    # Cria um snapshot em formato HCL
-    snapshot_hcl.create_snapshot(my_data, version='0.0.1', metadata={"author": "Henrique"}, format='hcl')
+    # Definindo validador
+    validatorFactory = ValidatorFactory()
+    validatorEngine = ValidationEngine(validatorFactory)
+    validatorFactory.register_validator('object', ObjectValidator)
+    validatorFactory.register_validator('array', ArrayValidator)
+    validatorFactory.register_validator('string', StringValidator)
+    validatorFactory.register_validator('integer', IntegerValidator)
+    validatorFactory.register_validator('number', NumberValidator)
+    validatorFactory.register_validator('boolean', BooleanValidator)
+    validatorFactory.register_validator('null', NullValidator)
+    validatorEngine.register_rule('schema-only', schema_only)
+    validatorEngine.register_rule('regex', regexOption)
+    validatorEngine.register_rule('validateDataLogic', validateDataLogic)
+
+
+    default_schema_generator = DefaultSchemaGenerator()
+
+    # Atualizar o esquema no objeto de dados
+    # Para incluir as validações, precisamos embutir 'validations' no esquema armazenado no snapshot
+    # Portanto, o método create_snapshot deve receber o esquema com as validações
+    # Ajustar o método create_snapshot para aceitar um esquema personalizado (se necessário)
+
+    # Criar snapshot com esquema que inclui validações
+    snapshot_json = SnapshotManager(
+        snapshot_name='my_test_snapshot_json',
+        serializer=serializerFactory,
+        schema_generator=default_schema_generator,
+        validation_engine=validatorEngine
+    )
+    snapshot_json.create_snapshot(my_data, version='0.0.1', metadata={"author": "Henrique"})
+
+    # Criar snapshot em formato HCL
+    snapshot_hcl = SnapshotManager(
+        snapshot_name='my_test_snapshot_hcl',
+        serializer=serializerFactory,
+        schema_generator=default_schema_generator,
+        validation_engine=validatorEngine
+    )
+    snapshot_hcl.create_snapshot(my_data, version='0.0.1', metadata={"author": "Henrique"})
 
     # Exemplo de uso do assert_deep_equal
     try:
-        snapshot_json.assert_deep_equal(my_data, version='0.0.1', format='json')
+        snapshot_json.assert_deep_equal(my_data, version='0.0.1')
         print("assert_deep_equal passou com sucesso para snapshot_json.")
     except AssertionError as e:
         print(f"AssertionError: {e}")
@@ -900,26 +740,31 @@ if __name__ == '__main__':
         "hardDataVerification": {
             "start": "2024-05-03",
             "end": "2024-05-05"
-        }
+        },
+        "status": False,  # Alterado
+        "count": 5,        # Alterado
+        "price": 49.99,    # Alterado
+        "description": "Produto alterado",  # Alterado
+        "notes": "Nota adicional"  # Alterado de None para string
     }
 
     # Tentando a asserção com dados alterados
     try:
-        snapshot_json.assert_deep_equal(altered_data, version='0.0.1', format='json')
+        snapshot_json.assert_deep_equal(altered_data, version='0.0.1')
         print("assert_deep_equal passou com sucesso para os dados alterados.")
     except AssertionError as e:
         print(f"AssertionError: {e}")
 
     # Exemplo de uso do assert_schema_compliance
     try:
-        snapshot_json.assert_schema_compliance(altered_data, version='0.0.1', format='json')
+        snapshot_json.assert_schema_compliance(altered_data, version='0.0.1')
         print("assert_schema_compliance passou com sucesso para os dados alterados.")
     except AssertionError as e:
         print(f"AssertionError: {e}")
 
     # Exemplo de uso do assert_custom_validation
     try:
-        snapshot_json.assert_custom_validation(altered_data, version='0.0.1', format='json')
+        snapshot_json.assert_custom_validation(altered_data, version='0.0.1')
         print("assert_custom_validation passou com sucesso para os dados alterados.")
     except AssertionError as e:
         print(f"AssertionError: {e}")
