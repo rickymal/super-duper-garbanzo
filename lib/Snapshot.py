@@ -445,11 +445,18 @@ class SerializerFactory:
     def register_serializer(self, format_name, serializer_class):
         self.serializers[format_name] = serializer_class
 
+    def get_options(self):
+        return tuple(self.serializers.keys())
+
     def get_serializer(self, format_name):
         serializer_class = self.serializers.get(format_name)
         if not serializer_class:
             raise ValueError(f"Formato '{format_name}' não suportado.")
         return serializer_class()
+    
+    def save():
+        
+        pass
 
 # --- SchemaGeneratorInterface e DefaultSchemaGenerator ---
 
@@ -491,7 +498,7 @@ class DefaultSchemaGenerator(SchemaGeneratorInterface):
 # --- Snapshot Class com Métodos de Asserção ---
 
 class SnapshotManager:
-    def __init__(self, snapshot_name, serializer=None, validation_mode='hard', snapshot_dir='mock', schema_generator=None, validation_engine=None):
+    def __init__(self, snapshot_name, serializer, validation_mode='hard', snapshot_dir='mock', schema_generator=None, validation_engine=None):
         self.snapshot_name = snapshot_name
         self.validation_mode = validation_mode
         self.snapshot_dir = snapshot_dir
@@ -499,26 +506,7 @@ class SnapshotManager:
         self.validation_engine = validation_engine or ValidationEngine()
         if not os.path.exists(self.snapshot_dir):
             os.makedirs(self.snapshot_dir)
-        self.serializer = serializer  # Pode ser None
-
-    def set_serializer(self, serializer):
         self.serializer = serializer
-
-    def select_serializer(self, format):
-        """Seleciona o serializer com base no formato."""
-        serializers = {
-            'json': JsonSerializer(),
-            'yml': YamlSerializer(),
-            'yaml': YamlSerializer(),
-            'toml': TomlSerializer(),
-            'hcl': HclSerializer(),
-            'pkl': PickleSerializer(),
-            'pickle': PickleSerializer()
-        }
-        serializer = serializers.get(format)
-        if not serializer:
-            raise ValueError(f"Formato '{format}' não suportado.")
-        return serializer
 
     def addRegister(self, name, func):
         """Registra uma função de validação personalizada."""
@@ -528,12 +516,12 @@ class SnapshotManager:
         """Calcula o hash do objeto para garantir a integridade."""
         return hashlib.sha256(pickle.dumps(obj)).hexdigest()
 
-    def create_snapshot(self, obj, version='latest', metadata=None, format='pkl'):
+    def create_snapshot(self, obj, version='latest', metadata=None):
         """Cria um novo snapshot."""
-        serializer = self.serializer or self.select_serializer(format)
-        self.validation_engine.register_rule('custom_validation', validateDataLogic)  # Exemplo de registro
+        serializer = self.serializer
+        self.default_format = serializer.get_options()[0]
         current_time = time.time()
-        versioned_file = os.path.join(self.snapshot_dir, f'{self.snapshot_name}_{version}.{format}')
+        versioned_file = os.path.join(self.snapshot_dir, f'{self.snapshot_name}.{version}.{self.default_format}')
         schema = self.schema_generator.generate(obj)
         snapshot_data = {
             'schema': schema,
@@ -544,14 +532,16 @@ class SnapshotManager:
             'last_access': datetime.datetime.fromtimestamp(current_time).isoformat() if not isinstance(serializer, PickleSerializer) else current_time,
             'metadata': metadata or {}
         }
-        serializer.save(snapshot_data, versioned_file)
+        serializerInstance = serializer.get_serializer(serializer.get_options()[0])
+
+        serializerInstance.save(snapshot_data, versioned_file)
         logger.info(f"Snapshot criado em {versioned_file} com metadados: {metadata}")
         return obj
 
-    def get_or_create_snapshot(self, obj=None, version='latest', expiration_time=3600, format='pkl'):
+    def get_or_create_snapshot(self, obj=None, version='latest', expiration_time=3600):
         """Obtém ou cria um snapshot."""
-        serializer = self.serializer or self.select_serializer(format)
-        versioned_file = os.path.join(self.snapshot_dir, f'{self.snapshot_name}_{version}.{format}')
+        serializer = self.serializer or self.select_serializer(self.default_format)
+        versioned_file = os.path.join(self.snapshot_dir, f'{self.snapshot_name}_{version}.{self.default_format}')
         current_time = time.time()
 
         if os.path.exists(versioned_file):
@@ -566,7 +556,7 @@ class SnapshotManager:
             if current_time - snapshot_data['created_at'] > expiration_time:
                 logger.info(f"Snapshot {version} expirou. Criando um novo.")
                 if obj is not None:
-                    return self.create_snapshot(obj, version, format=format)
+                    return self.create_snapshot(obj, version)
                 else:
                     raise ValueError(f"Snapshot {version} expirou e nenhum objeto foi fornecido para criar um novo.")
             # Validação do hash
@@ -588,19 +578,19 @@ class SnapshotManager:
             return snapshot_data['snapshot']
         else:
             if obj is not None:
-                return self.create_snapshot(obj, version, metadata=None, format=format)
+                return self.create_snapshot(obj, version, metadata=None)
             else:
                 raise FileNotFoundError(f"Snapshot {version} não encontrado e nenhum objeto foi fornecido para criar um novo.")
 
-    def load_snapshot_data(self, version='latest', format='pkl'):
+    def load_snapshot_data(self, version='latest'):
         """Carrega os dados do snapshot sem realizar validações."""
-        serializer = self.serializer or self.select_serializer(format)
-        versioned_file = os.path.join(self.snapshot_dir, f'{self.snapshot_name}_{version}.{format}')
-
+        # serializer = self.serializer or self.select_serializer(self.default_format)
+        versioned_file = os.path.join(self.snapshot_dir, f'{self.snapshot_name}.{version}.{self.default_format}')
+        self.serializer
         if os.path.exists(versioned_file):
-            snapshot_data = serializer.load(versioned_file)
+            snapshot_data = self.serializer.get_serializer(self.default_format).load(versioned_file)
             # Converter timestamps se necessário
-            if not isinstance(serializer, PickleSerializer):
+            if not isinstance(self.serializer.get_serializer(self.default_format), PickleSerializer):
                 if isinstance(snapshot_data['created_at'], str):
                     snapshot_data['created_at'] = datetime.datetime.fromisoformat(snapshot_data['created_at']).timestamp()
                 if isinstance(snapshot_data['last_access'], str):
@@ -614,9 +604,9 @@ class SnapshotManager:
         return self.validation_engine.validate(data, schema)
 
     # Métodos de asserção adicionados
-    def assert_deep_equal(self, data, version='latest', format='pkl'):
+    def assert_deep_equal(self, data, version='latest'):
         """Asserta que os dados fornecidos são profundamente iguais ao snapshot salvo."""
-        snapshot_data = self.load_snapshot_data(version, format)
+        snapshot_data = self.load_snapshot_data(version)
         snapshot_content = snapshot_data['snapshot']
 
         if snapshot_content != data:
@@ -624,9 +614,9 @@ class SnapshotManager:
         else:
             logger.info(f"Asserção bem-sucedida: os dados são iguais ao snapshot '{version}'.")
 
-    def assert_schema_compliance(self, data, version='latest', format='pkl'):
+    def assert_schema_compliance(self, data, version='latest'):
         """Asserta que os dados fornecidos estão em conformidade com o esquema do snapshot."""
-        snapshot_data = self.load_snapshot_data(version, format)
+        snapshot_data = self.load_snapshot_data(version)
         schema = snapshot_data['schema']
         is_valid, errors = self.validate_data(data, schema)
         if not is_valid:
@@ -635,9 +625,9 @@ class SnapshotManager:
         else:
             logger.info(f"Asserção bem-sucedida: os dados estão em conformidade com o esquema do snapshot '{version}'.")
 
-    def assert_custom_validation(self, data, version='latest', format='pkl'):
+    def assert_custom_validation(self, data, version='latest'):
         """Asserta que os dados fornecidos passam nas validações personalizadas."""
-        snapshot_data = self.load_snapshot_data(version, format)
+        snapshot_data = self.load_snapshot_data(version)
         schema = snapshot_data['schema']
         is_valid, errors = self.validate_data(data, schema)
         if not is_valid:
@@ -674,11 +664,11 @@ if __name__ == '__main__':
 
     # Definindo serializadores
     serializerFactory = SerializerFactory()
-    serializerFactory.register_serializer('json', JsonSerializer)
+    # serializerFactory.register_serializer('json', JsonSerializer)
     serializerFactory.register_serializer('yaml', YamlSerializer)
-    serializerFactory.register_serializer('toml', TomlSerializer)
-    serializerFactory.register_serializer('hcl', HclSerializer)
-    serializerFactory.register_serializer('pickle', PickleSerializer)
+    # serializerFactory.register_serializer('toml', TomlSerializer)
+    # serializerFactory.register_serializer('hcl', HclSerializer)
+    # serializerFactory.register_serializer('pickle', PickleSerializer)
 
     # Definindo validador
     validatorFactory = ValidatorFactory()
