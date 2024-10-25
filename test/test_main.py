@@ -1,7 +1,7 @@
 # example_tests.py
 
 # Importando o módulo test_flow
-from test_flow import (
+from lib.test_flow import (
     TestInstance, Alucinator, Context, RichConsole
 )
 import random
@@ -70,7 +70,7 @@ def verificar_resultado(ctx: Context):
     resultado = ctx.get('resultado')
     if resultado == n1 + n2:
         ctx.approve()
-        ctx.output.log("Resultado verificado com sucesso.")
+        s.output.log("Resultado verificado com sucesso.")
     else:
         ctx.reject("Resultado incorreto.")
         ctx.output.log("Falha na verificação do resultado.")

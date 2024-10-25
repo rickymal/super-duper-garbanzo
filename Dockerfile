@@ -1,23 +1,18 @@
-# Use the official Python 3.12 image from Docker Hub
 FROM python:3.12-slim
 
-# Set the working directory in the container
-WORKDIR /app
+# Crie um usuário não privilegiado
+RUN useradd -m appuser
 
-# Copy the requirements file into the container
-COPY requirements.txt .
+# Defina o diretório de trabalho e mude o proprietário
+WORKDIR /home/appuser/app
+COPY --chown=appuser:appuser . /home/appuser/app
 
-# Install any needed packages specified in requirements.txt
+# Instale as dependências
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of your application code to the container
-COPY . .
+# Mude para o usuário não privilegiado
+USER appuser
 
-# Expose any necessary ports (if your application uses them)
-# EXPOSE 8000
-
-# Define environment variables (if needed)
-# ENV PYTHONUNBUFFERED=1
-
-# Command to run your application
-CMD ["python", "your_main_script.py"]
+# Defina o comando de entrada
+CMD ["sleep", "infinity"]
+# CMD ["tail", "-f", "/dev/null"]
