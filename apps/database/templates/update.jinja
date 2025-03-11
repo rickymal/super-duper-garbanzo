@@ -1,0 +1,17 @@
+-- Atualizar registros da tabela {{ table_name }}
+UPDATE {{ table_name }}
+SET
+{% for update in update_values %}
+    {{ update.c1 }} = '{{ update.c2 | replace("'", "''") }}'{% if not loop.last %}, {% endif %}
+{% endfor %}
+{% if where_equal_clause %}
+  WHERE
+  {% for where in where_equal_clause %}
+      {% if loop.first %}{{ where.c1 }} = '{{ where.c2 | replace("'", "''") }}'{% else %} AND {{ where.c1 }} = '{{ where.c2 | replace("'", "''") }}'{% endif %}
+  {% endfor %}
+{% endif %}
+{% if returning_options %}
+  RETURNING {{ returning_options }};
+{% else %}
+  ;
+{% endif %}

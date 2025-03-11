@@ -1,0 +1,13 @@
+-- Deletar registros da tabela {{ table_name }}
+DELETE FROM {{ table_name }}
+{% if where_equal_clause %}
+  {% for where in where_equal_clause %}
+    {% if loop.first %}WHERE{% else %}AND{% endif %}
+    {{ where.c1 }} = '{{ where.c2 | replace("'", "''") }}'
+  {% endfor %}
+{% endif %}
+{% if returning_options %}
+  RETURNING {{ returning_options }};
+{% else %}
+  ;
+{% endif %}

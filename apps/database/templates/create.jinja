@@ -1,0 +1,15 @@
+-- Inserir registros na tabela {{ table_name }}
+INSERT INTO {{ table_name }} (
+    {%- for column in table_col_name -%}
+        {{ column }}{%- if not loop.last %}, {% endif -%}
+    {%- endfor -%}
+)
+VALUES
+{%- for row in table_col_value -%}
+    (
+        {%- for value in row -%}
+            {{- value -}}
+            {%- if not loop.last %}, {% endif -%}
+        {%- endfor -%}
+    ){% if not loop.last %}, {% else %};{% endif -%}
+{%- endfor -%}

@@ -3,3 +3,4 @@ env/
 mock/
 dist/
 __pycache__/
+private/

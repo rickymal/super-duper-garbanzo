@@ -1,0 +1,7 @@
+SELECT {{ columns_to_select }}
+FROM {{ table_name }}
+{% for where in where_equal_clause %}
+    {% if loop.first %}WHERE{% else %}AND{% endif %}
+    {{ where.c1 }} = '{{ where.c2 }}'
+{% endfor %}
+;

@@ -1,0 +1,15 @@
+from utils.types import *
+from utils.connection import DefaultConnectionEntity
+from utils.column import *
+{% for dep in deps %}
+from .{{dep.snake}} import {{dep.camel}}
+{% endfor%}
+class {{table_name.camel}}Entity(DefaultConnectionEntity):{% for column in columns %}
+    {{column.name}}: column({%- for col in column.database_type -%}{{col}}{%- if not loop.last %}, {% endif -%}{%- endfor -%}){% endfor %}
+
+
+    def table_name(self) -> str:
+        return "{{table_name.snake}}"
+
+    def create(self, /, *, {%- for column in columns -%}{{column.name}}: {{column.python_type}} = None{%- if not loop.last %}, {% endif -%}{%- endfor -%}):
+        super().create({%- for column in columns -%}{{column.name}} = {{column.name}}{%- if not loop.last %}, {% endif -%}{%- endfor -%})

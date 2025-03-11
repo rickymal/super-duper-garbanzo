@@ -1,0 +1,71 @@
+[config]
+theme = "dark"
+
+[config.gantt]
+dateFormat = "DD"
+title = "Roadmap"
+excludes = ["weekends"]
+tickInterval = "1day"
+
+[[config.gantt.milestones]]
+name = "Início do milestone"
+id = "start"
+date = "2024-12-24"
+duration = "0d"
+
+[[config.gantt.sections]]
+name = "Concurso"
+
+[[config.gantt.sections.tasks]]
+name = "prp"
+id = "s1"
+status = "active"
+dependsOn = "start"
+duration = "1d"
+
+[[config.gantt.sections.tasks]]
+name = "Estudar parte técnica"
+status = "active"
+duration = "5d"
+
+[[config.gantt.sections.tasks]]
+name = "Estudar português"
+duration = "6d"
+
+[[config.gantt.sections.tasks]]
+name = "Estudar matérias extras"
+duration = "5d"
+
+[[config.gantt.sections.tasks]]
+name = "Imprimir todo o conteúdo"
+duration = "3d"
+
+[[config.gantt.sections.tasks]]
+name = "Leitura no Kindle"
+duration = "5d"
+
+[[config.gantt.sections.tasks]]
+name = "Separar conteúdo em PDFs"
+duration = "5d"
+
+[[config.gantt.sections.tasks]]
+name = "Começar a estudar"
+duration = "15d"
+
+[[config.gantt.sections]]
+name = "ASAP (main)"
+
+[[config.gantt.sections.tasks]]
+name = "prp"
+id = "s2"
+status = "active"
+dependsOn = "start"
+duration = "1d"
+
+[[config.gantt.sections.tasks]]
+name = "Fazer as tarefas"
+deadline = "2025-02-04"
+
+[[config.gantt.sections.tasks]]
+name = "Emitir nota"
+deadline = "2024-12-01"

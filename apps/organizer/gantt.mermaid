@@ -1,0 +1,56 @@
+---
+
+config:
+  theme: dark
+---
+
+gantt
+    dateFormat  DD
+    title       Roadmap
+    excludes    weekends
+    tickInterval 1day
+
+    %% Marco inicial
+    Início do milestone: milestone, start, 2024-12-24, 0d
+
+    section Concurso
+    prp: active, s1, after start, 1d
+    Estudar parte técnica       : active, 5d
+    Estudar português           : 6d
+    Estudar matérias extras     : 5d
+    Imprimir todo o conteúdo    : 3d
+    Leitura no Kindle           : 5d
+    Separar conteúdo em PDFs    : 5d
+    Começar a estudar como estudei pela AWS           : 15d
+    Me inscrever e fazer um  concurso: 30d
+
+    section ASAP
+    prp: active, s2, after start, 1d
+    CLI: 6w
+
+
+    section Extra
+    prp: active, s3, after start, 1d
+    Comprar fone de ouvido: done, 1d
+    Comprar placa de vídeo: done, 1d
+    Comprar kindle: done, 1d
+    Comprar minha lampada estilo fogueira: 1d
+    Retorno pro meu nariz: 1d
+    planilha com senhas: 1d
+    planilha com orçamento: 1d
+    Consertar o piano: 3d
+    Chamar alguém para consertar meu banheiro: 1d
+    Tirar o CREA: 4d
+
+    section  Ingles
+    prp: active, s4, after start, 1d
+    Assistir a 3 vídeos da animação do re5 nas velocidades: 10d
+    Ouvir a história em diferentes velocidades: 5d
+    Bater um papo por duas horas com estranhos, anotar tudo: 3d
+    Definir próximos passos: 1d 
+    
+
+
+
+    %% Marco final
+    Fim do milestone: milestone, fim, 2025-02-04, 0d

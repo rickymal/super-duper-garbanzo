@@ -1,18 +1,29 @@
-FROM python:3.12-slim
+# Use uma imagem Go como base
+FROM golang:1.21-alpine as builder
 
-# Crie um usuário não privilegiado
-RUN useradd -m appuser
+# Diretório de trabalho dentro do contêiner
+WORKDIR /app
 
-# Defina o diretório de trabalho e mude o proprietário
-WORKDIR /home/appuser/app
-COPY --chown=appuser:appuser . /home/appuser/app
+# Copie os arquivos do repositório para o contêiner
+COPY . .
 
-# Instale as dependências
-RUN pip install --no-cache-dir -r requirements.txt
+# Compila os serviços Go
+RUN go mod tidy && go build -o main ./...
 
-# Mude para o usuário não privilegiado
-USER appuser
+# Use uma imagem mais enxuta para a execução do container
+FROM alpine:latest
 
-# Defina o comando de entrada
-CMD ["sleep", "infinity"]
-# CMD ["tail", "-f", "/dev/null"]
+# Instale dependências necessárias
+RUN apk --no-cache add ca-certificates
+
+# Copie o binário do build
+COPY --from=builder /app/main /usr/local/bin/
+
+# Defina a variável de ambiente
+ENV APP_ENV=production
+
+# Exponha a porta do seu serviço (ajuste conforme necessário)
+EXPOSE 8080
+
+# Defina o comando de execução
+CMD ["main"]
