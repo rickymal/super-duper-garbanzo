@@ -4,3 +4,6 @@ mock/
 dist/
 __pycache__/
 private/
+.venv
+.env
+env
