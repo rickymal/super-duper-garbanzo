@@ -27,11 +27,6 @@ class EntityGenerator:
             with open(output, 'w', encoding='utf-8') as file:
                 file.write(result)
 
-
-
-
-
-
 import re
 
 def to_snake_case(s: str) -> str:
