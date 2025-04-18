@@ -1,8 +1,72 @@
 import os
 import signal
 import time
+from subprocess import Popen
+
 import psycopg2
 from psycopg2 import OperationalError
+
+import os
+import sys
+
+
+def kill_process_by_port(port):
+    try:
+        # Encontra o PID do processo que está usando a porta
+        if sys.platform == 'win32':
+            # Comando para Windows
+            command = f"netstat -ano | findstr :{port}"
+            result = os.popen(command).read()
+            if not result:
+                print(f"Nenhum processo encontrado usando a porta {port}")
+                return
+
+            # Extrai o PID
+            pid = result.strip().split()[-1]
+            kill_command = f"taskkill /PID {pid} /F"
+        else:
+            # Comando para Linux/MacOS
+            command = f"lsof -i :{port} | grep LISTEN"
+            result = os.popen(command).read()
+            if not result:
+                print(f"Nenhum processo encontrado usando a porta {port}")
+                return
+
+            # Extrai o PID
+            pid = result.split()[1]
+            kill_command = f"kill -9 {pid}"
+
+        # Executa o comando para matar o processo
+        os.system(kill_command)
+        print(f"Processo com PID {pid} usando a porta {port} foi encerrado.")
+
+    except Exception as e:
+        print(f"Ocorreu um erro ao tentar encerrar o processo na porta {port}: {e}")
+
+
+# Exemplo de uso:
+# kill_process_by_port(8080)
+
+def kill_process_by_object(log, process):
+    """
+    Mata o processo pai e todos os seus filhos.
+
+    Args:
+        process (subprocess.Popen): Objeto do processo a ser encerrado.
+    """
+    try:
+        # Envia um sinal SIGTERM para o grupo de processos
+        try:
+            log.write("yellow", "gracefully shutdown")
+            process.terminate()
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            log.write("yellow", "force shutdown")
+            process.kill()
+
+    except ProcessLookupError:
+        # O processo já foi encerrado
+        pass
 
 def kill_process(pid: int) -> None:
     """
@@ -53,14 +117,11 @@ class ActiveProcess:
 
 import subprocess
 import sys
-import logging
 from typing import Protocol
-import log
 
 class ConsoleHandler(Protocol):
     def write(self, message: str):
         """Deve ser implementado para definir onde a saída será exibida."""
-        log.logger.info(message)
         pass
 
 
@@ -72,48 +133,114 @@ class StdOutHandler:
         sys.stdout.flush()
 
 
+# Implementação padrão que imprime no terminal (stdout)
+class NoHandler:
+    def write(self, message: str):
+        pass
 
-# Função que executa o script e encaminha a saída para o handler desejado
-def run_script_and_get_pid(script_path: str, console_handler: ConsoleHandler = StdOutHandler()):
+import subprocess
+import threading
+import io
+
+class ConsoleHandler:
+    def write(self, line):
+        # Implemente aqui o que você deseja fazer com a saída
+        print(line)  # Exemplo: apenas imprime a linha
+
+class NoHandler(ConsoleHandler):
+    def write(self, line):
+        pass  # Não faz nada
+
+import subprocess
+import io
+import threading
+import subprocess
+import io
+import threading
+import subprocess
+import io
+import threading
+import os
+
+def run_script_and_get_pid(cmd: list[str], project_root: str, logger) -> tuple:
     """
-    Executa um script shell indicado por 'script_path' de forma assíncrona
-    e redireciona a saída para um console_handler personalizado.
+    Executa um comando shell de forma assíncrona em um diretório específico
+    e redireciona a saída para um logger personalizado.
 
     Args:
-        script_path (str): Caminho do script shell a ser executado.
-        console_handler (ConsoleHandler): Objeto que processa a saída.
+        cmd (list[str]): Comando shell a ser executado (como uma lista de strings).
+        project_root (str): Diretório raiz onde o comando será executado.
+        logger: Objeto logger que processa a saída.
 
     Returns:
-        subprocess.Popen: Objeto do processo rodando em segundo plano.
+        tuple: (subprocess.Popen, io.StringIO) - Objeto do processo rodando em segundo plano e um stream com a saída.
     """
+
     try:
+        # Cria um stream para capturar a saída
+        output_stream = io.StringIO()
+        expanded_path = os.path.expanduser(project_root)
+        if not os.path.exists(expanded_path):
+            raise Exception(f"file/path {expanded_path} not found")
+
         # Inicia o processo sem bloquear e captura stdout/stderr
-        process = subprocess.Popen(
-            script_path,
-            shell=True,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
 
-        logging.info(f"Processo iniciado com PID: {process.pid}")
+        try:
+            process = subprocess.Popen(
+                # " ".join(cmd),
+                cmd,
+                cwd=expanded_path,  # Define o diretório de trabalho
+                shell=False,        # shell=False para usar a lista de comandos diretamente
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except Exception as err:
+            print(err)
+            raise Exception(err)
 
-        # Lendo a saída do processo linha por linha e enviando para o console_handler
-        def stream_output(stream):
+        # Lendo a saída do processo linha por linha e enviando para o logger e para o stream
+        def stream_output(stream, stream_type, logger):
             for line in iter(stream.readline, ''):
-                console_handler.write(line.strip())
+                # Registra a linha no logger
+                logger.write("blue", f"[{stream_type}] {line.strip()}")
+                # Captura a saída no stream
+                output_stream.write(f"[{stream_type}] {line}")
 
         # Cria threads para não bloquear a aplicação enquanto lê a saída
-        import threading
-        threading.Thread(target=stream_output, args=(process.stdout,), daemon=True).start()
-        threading.Thread(target=stream_output, args=(process.stderr,), daemon=True).start()
+        threading.Thread(
+            target=stream_output,
+            args=(process.stdout, "stdout", logger),
+            daemon=True
+        ).start()
+        threading.Thread(
+            target=stream_output,
+            args=(process.stderr, "stderr", logger),
+            daemon=True
+        ).start()
 
-        # Retorna imediatamente o objeto do processo para controle externo
-        return process
+        # Retorna o objeto do processo e o stream para controle externo
+        return process, output_stream
 
     except subprocess.SubprocessError as e:
-        raise
+        logger.write("red", f"Erro ao executar o comando: {e}")
+        raise e
 
+
+# Exemplo de uso
+if __name__ == "__main__":
+    script_path = "seu_script.sh"
+    console_handler = ConsoleHandler()
+    process, output_stream = run_script_and_get_pid(script_path, console_handler)
+
+    # Aguarda o processo terminar (opcional)
+    process.wait()
+
+    # Lê o conteúdo do stream e registra em logs
+    output_stream.seek(0)  # Volta ao início do stream
+    logs = output_stream.read()
+    print("Logs capturados:")
+    print(logs)
 
 # Exemplo de uso
 if __name__ == "__main__":

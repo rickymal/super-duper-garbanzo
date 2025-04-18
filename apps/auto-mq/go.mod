@@ -1,11 +1,10 @@
-module your_module_name
+module automq
 
-go 1.22.2
+go 1.23
 
 require (
 	github.com/labstack/gommon v0.4.2
 	github.com/rabbitmq/amqp091-go v1.10.0
-	github.com/streadway/amqp v1.1.0
 )
 
 require (

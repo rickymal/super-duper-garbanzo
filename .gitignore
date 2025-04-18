@@ -7,3 +7,16 @@ private/
 .venv
 .env
 env
+capture.log
+vcs.xml
+asap_preagenda.sql
+*.sql
+*.json
+capture.py
+ccap.py
+process.py
+test_buying.py
+ccap.py
+test_credit_with_installment.py
+test_credit_without_installment.py
+ccap.py
