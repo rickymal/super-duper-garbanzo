@@ -6,7 +6,8 @@ __pycache__/
 private/
 .venv
 .env
-env
+venv/
+env/
 capture.log
 vcs.xml
 asap_preagenda.sql

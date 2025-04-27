@@ -11,7 +11,7 @@ sv = executable.Container(name = 'static service validation')
 
 # prioridade infinita, significa que roda antes de tudo, quanto maior o número maior a prioridade
 @sv.it('creating micro-services')
-class Step:
+class Step: 
     def __init__(self):
         self.pid_payment = None
         self.pid_mdr = None

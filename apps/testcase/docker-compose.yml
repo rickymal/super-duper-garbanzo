@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  pg_source:
+    image: postgres:15
+    container_name: pg_source
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: sourcedb
+    ports:
+      - "5433:5432"
+    volumes:
+      - /d/docker_data/pg_source:/var/lib/postgresql/data
+
+  pg_destiny:
+    image: postgres:15
+    container_name: pg_destiny
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: destdb
+    ports:
+      - "5434:5432"
+    volumes:
+      - /d/docker_data/pg_dest:/var/lib/postgresql/data

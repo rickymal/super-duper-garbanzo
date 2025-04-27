@@ -1,0 +1,63 @@
+project-root:
+  .gitignore: ""          # arquivos pontuais representados por string vazia
+  README.md: ""
+  LICENSE: ""
+  Makefile: ""
+  go.mod: ""              # troque por package.json, pyproject.toml, etc.
+  
+  cmd:                    # ponto de entrada (binaries / services)
+    service-name:
+      - main.go           # ou main.ts, main.py...
+
+  configs:                # arquivos de configuração (YAML, TOML, env)
+    - default.yaml
+    - production.yaml
+
+  build: {}               # scripts/artifacts de build (CI/CD)
+
+  deployments:            # manifests de deploy
+    docker:               # Dockerfiles, docker-compose.*
+    k8s: {}               # Helm charts ou YAMLs do Kubernetes
+
+  internal:               # código privado ao módulo
+    domain:               # regra de negócio pura
+      entity: {}
+      enum: {}
+      repository: {}    # interfaces/contratos
+      service: {}        # Domain Services
+      event: {}          # Domain Events, Event Sourcing
+    application:          # orquestra casos de uso
+      usecase: {}
+      command: {}
+      query: {}
+      dto: {}
+    interfaces:           # camada de interface (I/O)
+      http:
+        controllers: {}
+        middlewares: {}
+      grpc: {}            # handlers .proto gerados
+      cli: {}             # comandos ou scripts de linha de comando
+    infrastructure:       # detalhes externos
+      persistence:
+        postgres: {}
+        mongodb: {}
+        mysql: {}
+      messaging:
+        rabbitmq: {}
+        kafka: {}
+      external:           # chamadas a APIs de terceiros
+        httpclient: {}
+      cache:
+        redis: {}
+    shared:               # utilidades comuns (sem regra de negócio)
+      errors: {}
+      utils: {}
+      logging: {}
+      constants: {}
+
+  pkg: {}                 # bibliotecas reutilizáveis (API pública do módulo)
+
+  scripts: {}             # scripts auxiliares (migrations, seed, tooling)
+  tests: {}               # suíte de testes (unit, integration, e2e)
+  docs: {}                # documentação adicional (ADR, diagrams)
+  tools: {}               # configs de linters, geradores de código, etc.

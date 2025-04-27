@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: pg_gateway
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: rickymal
+      POSTGRES_PASSWORD: he147369
+    ports:
+      - "12432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - pg_network
+    restart: always
+
+  web:
+    image: nginx:latest
+    container_name: nginx_server
+    ports:
+      - "8080:80"
+    networks:
+      - pg_network
+    depends_on:
+      - db
+    restart: always
+
+volumes:
+  pgdata:
+    driver: local
+    driver_opts:
+      type: none
+      device: D:/pgdata
+      o: bind
+
+networks:
+  pg_network:
+    driver: bridge
