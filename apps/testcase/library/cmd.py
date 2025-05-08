@@ -176,11 +176,11 @@ class FailTest(Exception):
         self.title = title
         self.log_message = log_message
 
-async def run_script_and_get_pid(
+def run_script_and_get_pid(
     cmd: list[str],
     project_root: str,
     logger_coro: Callable[[str, str], Awaitable[None]]
-) -> tuple:
+) -> Popen[bytes]:
     """
     Executa um comando shell de forma assíncrona em um diretório específico,
     redireciona a saída para uma função logger assíncrona personalizada.
@@ -200,53 +200,31 @@ async def run_script_and_get_pid(
     if not os.path.exists(expanded_path):
         raise Exception(f"file/path {expanded_path} not found")
 
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
+
+    process = subprocess.Popen(
+        cmd,
         cwd=expanded_path,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        shell=True,
     )
 
-    async def stream_output(stream, stream_type):
+    def stream_output(stream, stream_type):
         while True:
-            line = await stream.readline()
+            line = stream.readline()
             if not line:
                 break
             text = line.decode().strip()
-            await logger_coro(text, stream_type)
+            logger_coro(text, stream_type)
             output_stream.write(f"[{stream_type}] {text}\n")
 
     # Cria tasks para capturar stdout e stderr em paralelo
-    asyncio.create_task(stream_output(process.stdout, "stdout"))
-    asyncio.create_task(stream_output(process.stderr, "stderr"))
+    threading.Thread(target = stream_output, args=(process.stdout, "stdout"))
+    threading.Thread(target=stream_output, args=(process.stderr, "stderr"))
 
     return process
 
 
-# Exemplo de uso
-if __name__ == "__main__":
-    script_path = "seu_script.sh"
-    console_handler = ConsoleHandler()
-    process, output_stream = run_script_and_get_pid(script_path, console_handler)
-
-    # Aguarda o processo terminar (opcional)
-    process.wait()
-
-    # Lê o conteúdo do stream e registra em logs
-    output_stream.seek(0)  # Volta ao início do stream
-    logs = output_stream.read()
-    print("Logs capturados:")
-    print(logs)
-
-# Exemplo de uso
-if __name__ == "__main__":
-    script_path = "./meu_script.sh"  # Substitua pelo caminho correto do script
-
-    # Escolha o handler de saída
-    console_handler = StdOutHandler()  # Saída normal no terminal
-    # console_handler = RichConsoleHandler()  # Saída bonita com Rich (se instalado)
-
-    process = run_script_and_get_pid(script_path, console_handler)
 
 def create_postgres_connection(host: str, database: str, user: str, password: str, port: int = 5432):
     """

@@ -21,3 +21,6 @@ ccap.py
 test_credit_with_installment.py
 test_credit_without_installment.py
 ccap.py
+*.pkl
+usecase/create_transactions.py
+usecase/migrate_db.py

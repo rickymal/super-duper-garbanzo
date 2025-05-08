@@ -1,10 +1,24 @@
 import asyncio
+import pdb
+
 import psycopg2
 import psycopg2.extras
 from rich.console import Console
 
-async def migrate_postgres_tables_async(pg_source_config, pg_destiny_config, tables, batch_size=1000, truncate_before=False):
+async def migrate_postgres_tables_async(source_pg, destiny_pg, tables, batch_size=1000, truncate_before=False,
+                                        exclude_columns=None, sql_pre_commit = None, sql_pos_commit = None):
+    if exclude_columns is None:
+      exclude_columns = []
+
+    if sql_pre_commit is None:
+        sql_pre_commit = []
+
+    if sql_pos_commit is None:
+        sql_pos_commit = []
     console = Console()
+
+    if destiny_pg["host"] != "localhost":
+        raise Exception("opa meu patrão, acho que você trocou os parâmetros ein?!")
 
     def connect(config):
         return psycopg2.connect(
@@ -57,12 +71,17 @@ async def migrate_postgres_tables_async(pg_source_config, pg_destiny_config, tab
 
     loop = asyncio.get_event_loop()
 
-    with connect(pg_source_config) as src_conn, connect(pg_destiny_config) as dest_conn:
+    with connect(source_pg) as src_conn, connect(destiny_pg) as dest_conn:
         src_cur = src_conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         dest_cur = dest_conn.cursor()
 
         dest_cur.execute("SET session_replication_role = 'replica';")
         dest_conn.commit()
+
+        for sql_stmt in sql_pre_commit:
+            dest_cur.execute(sql_stmt)
+            dest_conn.commit()
+
 
         for table in tables:
             if not table_exists(dest_cur, table):
@@ -82,20 +101,46 @@ async def migrate_postgres_tables_async(pg_source_config, pg_destiny_config, tab
             total_copied = 0
             while True:
                 src_cur.execute(f"SELECT * FROM {table} OFFSET %s LIMIT %s;", (offset, batch_size))
+
+
                 rows = src_cur.fetchall()
                 if not rows:
                     break
 
-                colnames = [desc[0] for desc in src_cur.description]
+                # 1. identificar a posição de onde quero remover
+
+
+                colnames = []
+                idx_to_be_removed = []
+                for idx, desc in enumerate(src_cur.description):
+                    if desc[0] not in exclude_columns:
+                        colnames.append(desc[0])
+                        continue
+
+                    idx_to_be_removed.append(idx)
+
+                for row in rows:
+                    for idx in idx_to_be_removed:
+                        del row[idx]
+                # ('column "carschema" of relation "c_trxsummary" does not exist\nLINE 1: ...ata_reenvio_banco, asap_data_retorno, cardschema, carschema)...\n                                                             ^\n',)
+                # colnames = [desc[0] for desc in src_cur.description]
                 placeholders = ','.join(['%s'] * len(colnames))
                 insert_query = f"INSERT INTO {table} ({', '.join(colnames)}) VALUES ({placeholders})"
 
-                await loop.run_in_executor(None, dest_cur.executemany, insert_query, rows)
-                await loop.run_in_executor(None, dest_conn.commit)
+                try:
+                    await loop.run_in_executor(None, dest_cur.executemany, insert_query, rows)
+                    await loop.run_in_executor(None, dest_conn.commit)
+                except Exception as error:
+                    query = dest_cur.mogrify(insert_query, row).decode('utf-8')
+                    raise error
 
                 offset += batch_size
                 total_copied += len(rows)
                 console.print(f"[blue]{table}[/blue] → Copied [green]{total_copied}[/green] rows...")
+
+        for sql_stmt in sql_pos_commit:
+            dest_cur.execute(sql_stmt)
+            dest_conn.commit()
 
         dest_cur.execute("SET session_replication_role = 'origin';")
         dest_conn.commit()

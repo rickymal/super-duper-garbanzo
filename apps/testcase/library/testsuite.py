@@ -1,5 +1,5 @@
 # testsuite.py
-from __future__ import annotations
+
 import time
 import functools, inspect, textwrap, types, sys
 from typing import Callable, Dict, List, Any
@@ -73,21 +73,48 @@ def filter_args(arguments: Dict[str, Any], method_names: List[str]) -> Dict[str,
             filtered_args[method_name] = arguments[method_name]
     return filtered_args
 import cmd
+
+from collections import defaultdict
 # ----------------------------------------------------------------------
-class _ActorMeta:
+class Suite:
+
+    @classmethod
+    def from_timeline(cls, tmpls):
+        # 1. Obter a lista e filtrar ordenando por ordem de execução
+        order_list = defaultdict(list)
+
+        for tml in tmpls:
+            actor = tml.actor()
+            for step in tml.steps:
+                order_list[step.interval].append((step.description, getattr(actor, step.method)))
+
+
+        ordened_keys = sorted(order_list.keys())
+        final_list = []
+        for k in ordened_keys:
+            final_list.extend(order_list[k])
+
+        actor_meta = cls("")
+        for step in final_list:
+            actor_meta.step(step[0], step[1])
+
+        return actor_meta
+
+
     def __init__(self, label: str):
+        self.actual_step = 0
         self.label  = label                 # "PostgreSQL Application"
-        self.steps = []   # mapeia nome_do_método → _Step
+        self.steps = []   # mapeia
         self.console = rich.get_console()
+        self.data_inputs = []
+        self.execution_times = self._load_execution_times()
 
     def step(self, descr: str, method: Callable):
         self.steps.append(Step(descr, method))
 
-    def __init__(self, label: str):
-        self.label = label
-        self.steps = []
-        self.console = rich.get_console()
-        self.execution_times = self._load_execution_times()
+    def use_data(self, data):
+        self.data_inputs.append({'step_idx' : self.actual_step, 'data' : data})
+        return data
 
     def _load_execution_times(self) -> Dict[str, float]:
         """Load average execution times from pickle file"""
@@ -112,32 +139,50 @@ class _ActorMeta:
     async def run_all(self, arguments):
         from library import cmd
         
-        for step in self.steps:
+        for idx, step in enumerate(self.steps, start=1):
+            self.actual_step = idx
             text, filtered_args = interpolate_data(step.descr, arguments)
             self.console.print(f"[bold cyan]{text}[/]")
             
             method_name = step.method.__name__
-            self.console.print(f"Running {method_name}()...")
-            
             start_time = time.time()
             try:
                 if inspect.iscoroutinefunction(step.method):
-                    executed_method = step.method(self, **filtered_args)
+                    executed_method = step.method(**filtered_args)
                     await executed_method
                 else:
-                    step.method(self, **filtered_args)
-                    
+                    step.method(**filtered_args)
             except cmd.FailTest as e:
                 self.console.print(f"[red]Error in {method_name} {e.title}(): {e}[/]")
+                execution_time = time.time() - start_time
                 for line in e.log_message.splitlines():
                     self.console.print(f"  [red]{line}[/]")
-                raise
+                self.console.print(f"  [red]x[/] {method_name}() failed in {execution_time:.2f}s")
+                return
 
             execution_time = time.time() - start_time
             self._save_execution_time(method_name, execution_time)
             
             self.console.print(f"  [green]✓[/] {method_name}() completed in {execution_time:.2f}s")
 
+        return
+
+
+from dataclasses import dataclass
+
+@dataclass
+class StepMethod:
+    method : any
+    description: str
+    interval: int
+
+@dataclass
+class Timeline:
+    actor: any
+    steps: List[StepMethod]
+
+
+
 def actor(description: str):
     """Decorator para registrar um actor."""
-    return _ActorMeta(description)
+    return Suite(description)

@@ -1,13 +1,4 @@
 import pika
-
-
-import pika
-from typing import Optional
-
-import pika
-
-
-import pika
 import requests
 from requests.auth import HTTPBasicAuth
 from urllib.parse import quote
@@ -236,25 +227,3 @@ class Broker:
         Encerra a conexão com o RabbitMQ.
         """
         self.connection.close()
-
-
-
-# Exemplo de uso
-if __name__ == "__main__":
-    # Exemplo com argumentos opcionais para a fila
-    queue_args = {
-        'x-dead-letter-exchange': 'Agenda.Live-dlx',
-        'x-message-ttl': 60000,  # 60 segundos
-    }
-
-    broker = Broker(
-        exchange="Agenda.Live",
-        routing_key="transacao.capturada",
-        queue="mdr_collector",
-        host="localhost",
-        exchange_type="direct",
-        queue_args=queue_args,
-    )
-
-    # Fecha a conexão ao terminar
-    broker.close()

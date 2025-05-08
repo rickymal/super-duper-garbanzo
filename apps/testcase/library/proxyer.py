@@ -7,10 +7,10 @@ class ProxyServer:
         self.mirror_port = mirror_port
         self.binary_facades = binary_facades or []
         self.host = host
-        self.event_loop = asyncio.new_event_loop()
-        self.event_loop.is_running
-        self.event_loop.run_in_executor
-        
+        self.event_loop = asyncio.get_running_loop()
+
+    async def stop(self):
+        self.server_socket.close()
 
     async def start(self):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

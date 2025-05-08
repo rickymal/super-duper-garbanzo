@@ -4,7 +4,7 @@ import output
 from log import logger, RichStdOutputProtocol
 import executable
 import cmd
-from broker import Broker
+from library.broker import Broker
 
 no_console = output.NoConsole()
 sv = executable.Container(name = 'static service validation')
