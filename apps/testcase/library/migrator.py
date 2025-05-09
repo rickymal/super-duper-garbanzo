@@ -49,7 +49,6 @@ async def migrate_postgres_tables_async(source_pg, destiny_pg, tables, batch_siz
         if not columns:
             raise ValueError(f"Table '{table}' does not exist in source database")
 
-        # Montar definição de colunas
         column_defs = []
         for col in columns:
             colname, datatype, nullable, char_len = col
@@ -61,7 +60,6 @@ async def migrate_postgres_tables_async(source_pg, destiny_pg, tables, batch_siz
                 datatype = "INTEGER"
             elif datatype == "timestamp without time zone":
                 datatype = "TIMESTAMP"
-            # outros ajustes podem ser feitos aqui
 
             null_clause = "" if nullable == "YES" else "NOT NULL"
             column_defs.append(f"{colname} {datatype} {null_clause}")
@@ -122,8 +120,7 @@ async def migrate_postgres_tables_async(source_pg, destiny_pg, tables, batch_siz
                 for row in rows:
                     for idx in idx_to_be_removed:
                         del row[idx]
-                # ('column "carschema" of relation "c_trxsummary" does not exist\nLINE 1: ...ata_reenvio_banco, asap_data_retorno, cardschema, carschema)...\n                                                             ^\n',)
-                # colnames = [desc[0] for desc in src_cur.description]
+
                 placeholders = ','.join(['%s'] * len(colnames))
                 insert_query = f"INSERT INTO {table} ({', '.join(colnames)}) VALUES ({placeholders})"
 
