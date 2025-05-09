@@ -1,9 +1,48 @@
 import asyncio
+
 import socket
+import psutil  # você pode instalar via: pip install psutil
+
+def is_port_in_use(port: int, host="localhost") -> bool:
+    """
+    Verifica se uma porta já está em uso.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
+        try:
+            s.connect((host, port))
+            return True
+        except (ConnectionRefusedError, socket.timeout):
+            return False
+        except Exception:
+            return True  # Em dúvida, melhor considerar que está em uso.
+
+def kill_process_on_port(port: int):
+    """
+    Mata qualquer processo usando a porta.
+    """
+    for conn in psutil.net_connections():
+        if conn.laddr.port == port:
+            if conn.pid:
+                p = psutil.Process(conn.pid)
+                print(f"Matando processo PID {conn.pid} que usa a porta {port}...")
+                p.kill()
+
+def ensure_port_is_free(port: int, host="localhost"):
+    """
+    Garante que a porta esteja livre antes de seguir.
+    """
+    if is_port_in_use(port, host):
+        print(f"Atenção: porta {port} está ocupada! Tentando liberar...")
+        kill_process_on_port(port)
+    else:
+        print(f"Porta {port} está livre!")
+
 
 class ProxyServer:
-    def __init__(self, original_port, mirror_port, binary_facades=None, host="localhost"):
+    def __init__(self, original_port, mirror_host, mirror_port, binary_facades=None, original_host="localhost"):
         self.original_port = original_port
+        self.mirror_host = mirror_host
         self.mirror_port = mirror_port
         self.binary_facades = binary_facades or []
         self.host = host
@@ -13,55 +52,56 @@ class ProxyServer:
         self.server_socket.close()
 
     async def start(self):
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server_socket.bind((self.host, self.original_port))
-        self.server_socket.listen(5)
-        self.server_socket.setblocking(False)  # MUITO IMPORTANTE no asyncio
-        
-        print(f"Server listening on {self.host}:{self.original_port}")
+        ensure_port_is_free(self.original_port, self.original_host)
+        server = await asyncio.start_server(
+            self.handle_client,
+            host=self.original_host,
+            port=self.original_port
+        )
 
-        tasks = []
+        addrs = ', '.join(str(sock.getsockname()) for sock in server.sockets)
+        print(f"Serving on {addrs}")
+
+        async with server:
+            await server.serve_forever()
+
+    async def handle_client(self, client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter):
         try:
-            while True:
-                client_socket, client_address = await self.event_loop.sock_accept(self.server_socket)
-                print(f"Connection from {client_address}")
-                task = asyncio.create_task(self.handle_client(client_socket))
-                tasks.append(task)
-                tasks = [t for t in tasks if not t.done()]
-        except asyncio.CancelledError:
-            print("Server shutting down...")
-        finally:
-            self.server_socket.close()
+            # Conectando ao servidor destino
+            server_reader, server_writer = await asyncio.open_connection(
+                self.mirror_host,
+                self.mirror_port
+            )
 
-    async def handle_client(self, client_socket: socket.socket) -> None:
-        try:
-            await asyncio.get_event_loop().sock_connect(server_socket, (self.host, self.mirror_port))
-            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_socket.setblocking(False)
-            await asyncio.get_event_loop().sock_connect(server_socket, (self.mirror_port, self.port))
+            # Cria pipes bidirecionais
+            client_to_server = asyncio.create_task(self.pipe(client_reader, server_writer, "client"))
+            server_to_client = asyncio.create_task(self.pipe(server_reader, client_writer, "server"))
 
-            # Agora rodamos os dois pipes em paralelo
-            client_to_server = asyncio.create_task(self.pipe(client_socket, server_socket, "client"))
-            server_to_client = asyncio.create_task(self.pipe(server_socket, client_socket, "server"))
-
-            # Espera até que uma delas termine
+            # Espera terminar uma direção (por exemplo, conexão fechada)
             await asyncio.wait(
                 [client_to_server, server_to_client],
                 return_when=asyncio.FIRST_COMPLETED
             )
 
         except Exception as e:
-            print(f"Proxy error: {e}")
+            print(f"Error in handle_client: {e}")
         finally:
-            client_socket.close()
-            if 'server_socket' in locals():
-                server_socket.close()
+            client_writer.close()
+            try:
+                await client_writer.wait_closed()
+            except Exception:
+                pass
+            if 'server_writer' in locals():
+                server_writer.close()
+                try:
+                    await server_writer.wait_closed()
+                except Exception:
+                    pass
 
-    async def pipe(self, src_socket: socket.socket, dst_socket: socket.socket, direction: str) -> None:
+    async def pipe(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, direction: str):
         try:
             while True:
-                data = await asyncio.get_event_loop().sock_recv(src_socket, 4096)
+                data = await reader.read(4096)
                 if not data:
                     break
 
@@ -72,7 +112,13 @@ class ProxyServer:
                     else:
                         await facade.on_server_data_received(data)
 
-                await asyncio.get_event_loop().sock_sendall(dst_socket, data)
-
+                writer.write(data)
+                await writer.drain()
         except Exception as e:
             print(f"Pipe error ({direction}): {e}")
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass

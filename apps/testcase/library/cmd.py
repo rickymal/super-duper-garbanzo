@@ -169,7 +169,9 @@ import os
 import io
 from typing import Callable, Awaitable
 
+import rich
 
+console = rich.get_console()
 
 class FailTest(Exception):
     def __init__(self, title, log_message):
